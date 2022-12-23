@@ -227,11 +227,21 @@ impl GuiElement for FilterExposure {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct FilterLut {
     pub is_active: bool,
     pub file: String,
     pub interpolation: String,
+}
+
+impl Default for FilterLut {
+    fn default() -> Self {
+        Self {
+            is_active: false,
+            file: String::new(),
+            interpolation: "tetrahedral".to_string(),
+        }
+    }
 }
 
 #[typetag::serde]
@@ -302,6 +312,75 @@ impl GuiElement for FilterScale {
 
     fn name(&self) -> &'static str {
         "Scale"
+    }
+
+    fn is_active(&self) -> bool {
+        self.is_active
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct FilterEq {
+    pub is_active: bool,
+    pub contrast: f32,
+    pub brightness: f32,
+    pub saturation: f32,
+    pub gamma: f32,
+}
+
+impl Default for FilterEq {
+    fn default() -> Self {
+        Self {
+            is_active: false,
+            contrast: 1.,
+            brightness: 0.,
+            saturation: 1.,
+            gamma: 1.,
+        }
+    }
+}
+
+#[typetag::serde]
+impl Filter for FilterEq {
+    fn to_filter_string(&self) -> String {
+        format!(
+            "eq=contrast={}:brightness={}:saturation={}:gamma={}",
+            self.contrast, self.brightness, self.saturation, self.gamma
+        )
+    }
+}
+
+#[typetag::serde]
+impl GuiElement for FilterEq {
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.is_active, "Active");
+        ui.add(
+            Slider::new(&mut self.contrast, 0.0..=3.0)
+                .clamp_to_range(true)
+                .logarithmic(true)
+                .text("Contrast"),
+        );
+        ui.add(
+            Slider::new(&mut self.brightness, -1.0..=1.0)
+                .clamp_to_range(true)
+                .logarithmic(true)
+                .text("Brightness"),
+        );
+        ui.add(
+            Slider::new(&mut self.saturation, 0.0..=3.0)
+                .clamp_to_range(true)
+                .text("Saturation"),
+        );
+        ui.add(
+            Slider::new(&mut self.gamma, 0.1..=10.0)
+                .clamp_to_range(true)
+                .logarithmic(true)
+                .text("Gamma"),
+        );
+    }
+
+    fn name(&self) -> &'static str {
+        "Eq"
     }
 
     fn is_active(&self) -> bool {

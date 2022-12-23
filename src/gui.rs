@@ -13,7 +13,7 @@ use image::RgbaImage;
 use temp_dir::TempDir;
 
 use crate::ffmpeg::{
-    CliOption, FilterExposure, FilterLut, FilterOption, FilterScale, InputFile,
+    CliOption, FilterEq, FilterExposure, FilterLut, FilterOption, FilterScale, InputFile,
     NumberOfFramesOption, OutputFile, Request, Response, SkipOption,
 };
 
@@ -55,6 +55,7 @@ impl Default for ColorustState {
                     }),
                     Box::<FilterExposure>::default(),
                     Box::<FilterLut>::default(),
+                    Box::<FilterEq>::default(),
                 ],
             },
             skip_seconds: Default::default(),
