@@ -1,0 +1,18 @@
+[package]
+name = "colorust"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+egui = "0.20.1"
+eframe = { version = "0.20.1", features = ["dark-light", "persistence"] }
+serde = { version = "1", features = ["derive"] }
+image = "0.24.5"
+flume = "0.10"
+temp-dir = "0.1.11"
+typetag = "0.2.4"
+
+[profile.release]
+lto = "thin"
