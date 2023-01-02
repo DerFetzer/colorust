@@ -1,4 +1,5 @@
 use egui::{CollapsingHeader, ComboBox, DragValue, Slider};
+use egui_file::FileDialog;
 use flume::{Receiver, Sender};
 use image::io::Reader as ImageReader;
 use image::RgbaImage;
@@ -10,6 +11,7 @@ use crate::gui::GuiElement;
 #[derive(Debug)]
 pub(crate) enum Request {
     ExtractFrame { args: String, output: PathBuf },
+    Play { args: String },
     Convert { args: String },
 }
 
@@ -64,10 +66,10 @@ impl GuiElement for FilterOption {
         "Filters"
     }
 
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         for filter in self.filters.iter_mut() {
             CollapsingHeader::new(filter.name()).show(ui, |ui| {
-                filter.draw(ui);
+                filter.draw(ctx, ui);
             });
         }
     }
@@ -91,7 +93,7 @@ impl GuiElement for SkipOption {
         "Skip seconds"
     }
 
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.add(DragValue::new(&mut self.seconds));
     }
 }
@@ -114,20 +116,22 @@ impl GuiElement for NumberOfFramesOption {
         "Namber of frames"
     }
 
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.add(DragValue::new(&mut self.frames));
     }
 }
 
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct InputFile {
-    pub path: String,
+    pub path: PathBuf,
+    #[serde(skip)]
+    pub dialog: Option<FileDialog>,
 }
 
 #[typetag::serde]
 impl CliOption for InputFile {
     fn to_option_string(&self) -> String {
-        format!("-i {}", self.path)
+        format!("-i {}", self.path.to_string_lossy())
     }
 }
 
@@ -137,20 +141,41 @@ impl GuiElement for InputFile {
         "Input file"
     }
 
-    fn draw(&mut self, ui: &mut egui::Ui) {
-        ui.text_edit_singleline(&mut self.path);
+    fn draw(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let mut path = self.path.to_string_lossy();
+        if ui.text_edit_singleline(path.to_mut()).changed() {
+            self.path = PathBuf::from(path.to_string());
+        }
+        if ui.button("Open").clicked() {
+            let mut dialog = FileDialog::save_file(if self.path.is_dir() || self.path.is_file() {
+                Some(self.path.clone())
+            } else {
+                None
+            });
+            dialog.open();
+            self.dialog = Some(dialog);
+        }
+        if let Some(dialog) = &mut self.dialog {
+            if dialog.show(ctx).selected() {
+                if let Some(path) = dialog.path() {
+                    self.path = path;
+                }
+            }
+        }
     }
 }
 
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct OutputFile {
-    pub path: String,
+    pub path: PathBuf,
+    #[serde(skip)]
+    pub dialog: Option<FileDialog>,
 }
 
 #[typetag::serde]
 impl CliOption for OutputFile {
     fn to_option_string(&self) -> String {
-        self.path.to_string()
+        self.path.to_string_lossy().to_string()
     }
 }
 
@@ -160,8 +185,33 @@ impl GuiElement for OutputFile {
         "Output file"
     }
 
-    fn draw(&mut self, ui: &mut egui::Ui) {
-        ui.text_edit_singleline(&mut self.path);
+    fn draw(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+        let mut path = self.path.to_string_lossy();
+        if ui.text_edit_singleline(path.to_mut()).changed() {
+            self.path = PathBuf::from(path.to_string());
+        }
+        if ui.button("Open").clicked() {
+            let mut dialog = FileDialog::save_file(if self.path.is_file() {
+                Some(self.path.clone())
+            } else if let Some(parent) = self.path.parent() {
+                if parent.is_dir() {
+                    Some(parent.to_path_buf())
+                } else {
+                    None
+                }
+            } else {
+                None
+            });
+            dialog.open();
+            self.dialog = Some(dialog);
+        }
+        if let Some(dialog) = &mut self.dialog {
+            if dialog.show(ctx).selected() {
+                if let Some(path) = dialog.path() {
+                    self.path = path;
+                }
+            }
+        }
     }
 }
 
@@ -173,13 +223,17 @@ pub(crate) struct Encoder {
 #[typetag::serde]
 impl CliOption for Encoder {
     fn to_option_string(&self) -> String {
-        format!("-c:v {}", self.expression)
+        if self.expression.is_empty() {
+            String::new()
+        } else {
+            format!("-c:v {}", self.expression)
+        }
     }
 }
 
 #[typetag::serde]
 impl GuiElement for Encoder {
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.text_edit_singleline(&mut self.expression);
     }
 
@@ -204,7 +258,7 @@ impl Filter for FilterExposure {
 
 #[typetag::serde]
 impl GuiElement for FilterExposure {
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.is_active, "Active");
         ui.add(
             Slider::new(&mut self.exposure, -3.0..=3.0)
@@ -253,7 +307,7 @@ impl Filter for FilterLut {
 
 #[typetag::serde]
 impl GuiElement for FilterLut {
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.is_active, "Active");
         ui.text_edit_singleline(&mut self.file);
         ComboBox::from_label("Interpolation")
@@ -298,7 +352,7 @@ impl Filter for FilterScale {
 
 #[typetag::serde]
 impl GuiElement for FilterScale {
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.is_active, "Active");
         ui.horizontal(|ui| {
             ui.label("Width");
@@ -352,7 +406,7 @@ impl Filter for FilterEq {
 
 #[typetag::serde]
 impl GuiElement for FilterEq {
-    fn draw(&mut self, ui: &mut egui::Ui) {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.checkbox(&mut self.is_active, "Active");
         ui.add(
             Slider::new(&mut self.contrast, 0.0..=3.0)
@@ -381,6 +435,174 @@ impl GuiElement for FilterEq {
 
     fn name(&self) -> &'static str {
         "Eq"
+    }
+
+    fn is_active(&self) -> bool {
+        self.is_active
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct FilterColortemp {
+    pub is_active: bool,
+    pub temperature: u32,
+}
+
+impl Default for FilterColortemp {
+    fn default() -> Self {
+        Self {
+            is_active: false,
+            temperature: 6500,
+        }
+    }
+}
+
+#[typetag::serde]
+impl Filter for FilterColortemp {
+    fn to_filter_string(&self) -> String {
+        format!("colortemperature=temperature={}:pl=1", self.temperature)
+    }
+}
+
+#[typetag::serde]
+impl GuiElement for FilterColortemp {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.is_active, "Active");
+        ui.add(
+            Slider::new(&mut self.temperature, 1000..=40000)
+                .clamp_to_range(true)
+                .logarithmic(true)
+                .text("Temperature"),
+        );
+    }
+
+    fn name(&self) -> &'static str {
+        "Color temperature"
+    }
+
+    fn is_active(&self) -> bool {
+        self.is_active
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub(crate) struct FilterColorBalance {
+    pub is_active: bool,
+    pub shadows_red: f32,
+    pub shadows_green: f32,
+    pub shadows_blue: f32,
+    pub midtones_red: f32,
+    pub midtones_green: f32,
+    pub midtones_blue: f32,
+    pub highlights_red: f32,
+    pub highlights_green: f32,
+    pub highlights_blue: f32,
+    pub preserve_lightness: bool,
+}
+
+#[typetag::serde]
+impl Filter for FilterColorBalance {
+    fn to_filter_string(&self) -> String {
+        format!(
+            "colorbalance=rs={}:gs={}:bs={}:rm={}:gm={}:bm={}:rh={}:gh={}:bh={}",
+            self.shadows_red,
+            self.shadows_green,
+            self.shadows_blue,
+            self.midtones_red,
+            self.midtones_green,
+            self.midtones_blue,
+            self.highlights_red,
+            self.highlights_green,
+            self.highlights_blue
+        )
+    }
+}
+
+#[typetag::serde]
+impl GuiElement for FilterColorBalance {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.is_active, "Active");
+        ui.label("Shadows");
+        ui.add(
+            Slider::new(&mut self.shadows_red, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Red"),
+        );
+        ui.add(
+            Slider::new(&mut self.shadows_green, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Green"),
+        );
+        ui.add(
+            Slider::new(&mut self.shadows_blue, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Blue"),
+        );
+        ui.label("Midtones");
+        ui.add(
+            Slider::new(&mut self.midtones_red, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Red"),
+        );
+        ui.add(
+            Slider::new(&mut self.midtones_green, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Green"),
+        );
+        ui.add(
+            Slider::new(&mut self.midtones_blue, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Blue"),
+        );
+        ui.label("Highlights");
+        ui.add(
+            Slider::new(&mut self.highlights_red, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Red"),
+        );
+        ui.add(
+            Slider::new(&mut self.highlights_green, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Green"),
+        );
+        ui.add(
+            Slider::new(&mut self.highlights_blue, -1.0..=1.0)
+                .clamp_to_range(true)
+                .text("Blue"),
+        );
+    }
+
+    fn name(&self) -> &'static str {
+        "Color balance"
+    }
+
+    fn is_active(&self) -> bool {
+        self.is_active
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
+pub(crate) struct FilterCustom {
+    pub is_active: bool,
+    pub expression: String,
+}
+
+#[typetag::serde]
+impl Filter for FilterCustom {
+    fn to_filter_string(&self) -> String {
+        self.expression.clone()
+    }
+}
+
+#[typetag::serde]
+impl GuiElement for FilterCustom {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.is_active, "Active");
+        ui.text_edit_singleline(&mut self.expression);
+    }
+
+    fn name(&self) -> &'static str {
+        "Custom filter(s)"
     }
 
     fn is_active(&self) -> bool {
@@ -421,6 +643,18 @@ impl Thread {
                         self.response_tx
                             .send(Response::Image(img.into_rgba8()))
                             .unwrap();
+                    }
+                    Request::Play { args } => {
+                        let ffmpeg_output = Command::new("ffplay")
+                            .args(args.split(' ').filter(|a| !a.is_empty()))
+                            .output()
+                            .unwrap();
+                        println!(
+                            "code: {}, \n{}\n{}",
+                            ffmpeg_output.status.code().unwrap(),
+                            String::from_utf8(ffmpeg_output.stdout).unwrap(),
+                            String::from_utf8(ffmpeg_output.stderr).unwrap(),
+                        );
                     }
                     Request::Convert { args } => todo!(),
                 }

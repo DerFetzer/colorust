@@ -1,20 +1,24 @@
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Write,
+    path::PathBuf,
     time::Duration,
 };
 
 use eframe::App;
 use egui::{
     plot::{MarkerShape, Plot, PlotPoints, Points},
-    CollapsingHeader, Color32, ColorImage, SidePanel, Slider, TextureHandle,
+    CollapsingHeader, Color32, ColorImage, ScrollArea, SidePanel, Slider, TextEdit, TextureHandle,
+    TopBottomPanel,
 };
 use flume::{Receiver, Sender};
 use image::RgbaImage;
 use temp_dir::TempDir;
 
 use crate::ffmpeg::{
-    CliOption, FilterEq, FilterExposure, FilterLut, FilterOption, FilterScale, InputFile,
-    NumberOfFramesOption, OutputFile, Request, Response, SkipOption,
+    CliOption, Encoder, FilterColorBalance, FilterColortemp, FilterCustom, FilterEq,
+    FilterExposure, FilterLut, FilterOption, FilterScale, InputFile, NumberOfFramesOption,
+    OutputFile, Request, Response, SkipOption,
 };
 
 pub(crate) struct ColorustApp {
@@ -28,14 +32,22 @@ pub(crate) struct ColorustApp {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)]
-pub(crate) struct ColorustState {
+pub(crate) struct FileState {
     input_file: InputFile,
     output_file: OutputFile,
+    encoder: Encoder,
     skip_seconds: SkipOption,
     cli_options: Vec<Box<dyn CliOption>>,
     filter_options: FilterOption,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(default)]
+pub(crate) struct ColorustState {
+    active_file_state: FileState,
     waveform_multiplier: f64,
+    conversion_commands: String,
+    file_history: HashMap<PathBuf, String>,
 }
 
 impl ColorustState {}
@@ -43,23 +55,31 @@ impl ColorustState {}
 impl Default for ColorustState {
     fn default() -> Self {
         ColorustState {
-            input_file: Default::default(),
-            output_file: Default::default(),
-            cli_options: vec![],
-            filter_options: FilterOption {
-                filters: vec![
-                    Box::new(FilterScale {
-                        is_active: true,
-                        width: 1280,
-                        height: 720,
-                    }),
-                    Box::<FilterExposure>::default(),
-                    Box::<FilterLut>::default(),
-                    Box::<FilterEq>::default(),
-                ],
+            active_file_state: FileState {
+                input_file: Default::default(),
+                output_file: Default::default(),
+                encoder: Default::default(),
+                cli_options: vec![],
+                filter_options: FilterOption {
+                    filters: vec![
+                        Box::new(FilterScale {
+                            is_active: true,
+                            width: 1280,
+                            height: 720,
+                        }),
+                        Box::<FilterExposure>::default(),
+                        Box::<FilterColortemp>::default(),
+                        Box::<FilterLut>::default(),
+                        Box::<FilterEq>::default(),
+                        Box::<FilterColorBalance>::default(),
+                        Box::<FilterCustom>::default(),
+                    ],
+                },
+                skip_seconds: Default::default(),
             },
-            skip_seconds: Default::default(),
-            waveform_multiplier: 15.,
+            waveform_multiplier: 25.,
+            conversion_commands: Default::default(),
+            file_history: Default::default(),
         }
     }
 }
@@ -88,32 +108,104 @@ impl ColorustApp {
 
     fn draw_side_panel(&mut self, ctx: &egui::Context) {
         SidePanel::left("Parameters").show(ctx, |ui| {
-            CollapsingHeader::new(self.state.input_file.name()).show(ui, |ui| {
-                self.state.input_file.draw(ui);
+            CollapsingHeader::new(self.state.active_file_state.input_file.name()).show(ui, |ui| {
+                self.state.active_file_state.input_file.draw(ctx, ui);
             });
-            CollapsingHeader::new(self.state.output_file.name()).show(ui, |ui| {
-                self.state.output_file.draw(ui);
+            CollapsingHeader::new(self.state.active_file_state.output_file.name()).show(ui, |ui| {
+                self.state.active_file_state.output_file.draw(ctx, ui);
             });
-            CollapsingHeader::new(self.state.skip_seconds.name()).show(ui, |ui| {
-                self.state.skip_seconds.draw(ui);
+            CollapsingHeader::new(self.state.active_file_state.encoder.name()).show(ui, |ui| {
+                self.state.active_file_state.encoder.draw(ctx, ui);
             });
-            for opt in self.state.cli_options.iter_mut() {
+            CollapsingHeader::new(self.state.active_file_state.skip_seconds.name()).show(
+                ui,
+                |ui| {
+                    self.state.active_file_state.skip_seconds.draw(ctx, ui);
+                },
+            );
+            ui.separator();
+            for opt in self.state.active_file_state.cli_options.iter_mut() {
                 CollapsingHeader::new(opt.name()).show(ui, |ui| {
-                    opt.draw(ui);
+                    opt.draw(ctx, ui);
                 });
             }
             CollapsingHeader::new("Filters").show(ui, |ui| {
-                self.state.filter_options.draw(ui);
+                self.state.active_file_state.filter_options.draw(ctx, ui);
             });
-            if ui.button("Create preview").clicked() {
-                let preview_file = self.temp_dir.child("preview.bmp");
-                let args = format!(
-                    "-y -loglevel warning {} {} {} {} {} {}",
-                    self.state.skip_seconds.to_option_string(),
-                    self.state.input_file.to_option_string(),
-                    NumberOfFramesOption { frames: 1 }.to_option_string(),
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Create preview").clicked() {
+                    let preview_file = self.temp_dir.child("preview.bmp");
+                    let args = format!(
+                        "-y -loglevel warning {} {} {} {} {} {}",
+                        self.state.active_file_state.skip_seconds.to_option_string(),
+                        self.state.active_file_state.input_file.to_option_string(),
+                        NumberOfFramesOption { frames: 1 }.to_option_string(),
+                        &self
+                            .state
+                            .active_file_state
+                            .cli_options
+                            .iter()
+                            .filter_map(|o| if o.is_active() {
+                                Some(o.to_option_string())
+                            } else {
+                                None
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        self.state
+                            .active_file_state
+                            .filter_options
+                            .to_option_string(),
+                        OutputFile {
+                            path: preview_file.clone(),
+                            dialog: None
+                        }
+                        .to_option_string(),
+                    );
+
+                    self.request_tx
+                        .send(Request::ExtractFrame {
+                            args,
+                            output: preview_file,
+                        })
+                        .unwrap();
+                    self.waiting_for_image = true;
+                }
+                if ui.button("Play preview").clicked() {
+                    let args = format!(
+                        "{} {} {} {}",
+                        self.state.active_file_state.skip_seconds.to_option_string(),
+                        self.state.active_file_state.input_file.to_option_string(),
+                        &self
+                            .state
+                            .active_file_state
+                            .cli_options
+                            .iter()
+                            .filter_map(|o| if o.is_active() {
+                                Some(o.to_option_string())
+                            } else {
+                                None
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        self.state
+                            .active_file_state
+                            .filter_options
+                            .to_option_string(),
+                    );
+
+                    self.request_tx.send(Request::Play { args }).unwrap();
+                }
+            });
+            if ui.button("Generate conversion command").clicked() {
+                writeln!(
+                    &mut self.state.conversion_commands,
+                    "ffmpeg {} {} {} {} {}",
+                    self.state.active_file_state.input_file.to_option_string(),
                     &self
                         .state
+                        .active_file_state
                         .cli_options
                         .iter()
                         .filter_map(|o| if o.is_active() {
@@ -123,21 +215,50 @@ impl ColorustApp {
                         })
                         .collect::<Vec<_>>()
                         .join(" "),
-                    self.state.filter_options.to_option_string(),
-                    OutputFile {
-                        path: preview_file.to_str().unwrap().to_string()
-                    }
-                    .to_option_string(),
-                );
-
-                self.request_tx
-                    .send(Request::ExtractFrame {
-                        args,
-                        output: preview_file,
-                    })
-                    .unwrap();
-                self.waiting_for_image = true;
+                    self.state
+                        .active_file_state
+                        .filter_options
+                        .to_option_string(),
+                    self.state.active_file_state.encoder.to_option_string(),
+                    self.state.active_file_state.output_file.to_option_string(),
+                )
+                .unwrap();
             }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Save file state").clicked() {
+                    self.state.file_history.insert(
+                        self.state.active_file_state.input_file.path.clone(),
+                        serde_json::to_string(&self.state.active_file_state).unwrap(),
+                    );
+                }
+                if ui.button("Load file state").clicked() {
+                    if let Some(file_state_string) = self
+                        .state
+                        .file_history
+                        .get(&self.state.active_file_state.input_file.path)
+                    {
+                        if let Ok(file_state) = serde_json::from_str(file_state_string) {
+                            self.state.active_file_state = file_state;
+                        } else {
+                            println!("Could not parse state from JSON!");
+                        }
+                    } else {
+                        println!("No state available!");
+                    }
+                }
+            });
+        });
+    }
+
+    fn draw_bottom_panel(&mut self, ctx: &egui::Context) {
+        TopBottomPanel::bottom("conversion_commands").show(ctx, |ui| {
+            ScrollArea::new([false, true]).show(ui, |ui| {
+                ui.add_sized(
+                    ui.available_size(),
+                    TextEdit::multiline(&mut self.state.conversion_commands),
+                );
+            });
         });
     }
 
@@ -245,14 +366,15 @@ impl App for ColorustApp {
         self.handle_events(ctx);
 
         self.draw_side_panel(ctx);
-        self.draw_windows(ctx);
+        self.draw_bottom_panel(ctx);
         self.draw_central_panel(ctx);
+        self.draw_windows(ctx);
     }
 }
 
 #[typetag::serde(tag = "type")]
 pub(crate) trait GuiElement {
-    fn draw(&mut self, ui: &mut egui::Ui);
+    fn draw(&mut self, ctx: &egui::Context, ui: &mut egui::Ui);
     fn name(&self) -> &'static str;
     fn is_active(&self) -> bool {
         true
