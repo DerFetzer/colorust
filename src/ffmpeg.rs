@@ -12,7 +12,6 @@ use crate::gui::GuiElement;
 pub(crate) enum Request {
     ExtractFrame { args: String, output: PathBuf },
     Play { args: String },
-    Convert { args: String },
 }
 
 #[derive(Debug)]
@@ -93,7 +92,7 @@ impl GuiElement for SkipOption {
         "Skip seconds"
     }
 
-    fn draw(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
         ui.add(DragValue::new(&mut self.seconds));
     }
 }
@@ -147,7 +146,7 @@ impl GuiElement for InputFile {
             self.path = PathBuf::from(path.to_string());
         }
         if ui.button("Open").clicked() {
-            let mut dialog = FileDialog::save_file(if self.path.is_dir() || self.path.is_file() {
+            let mut dialog = FileDialog::open_file(if self.path.is_dir() || self.path.is_file() {
                 Some(self.path.clone())
             } else {
                 None
@@ -626,39 +625,48 @@ impl Thread {
     pub fn run(&mut self) -> ! {
         loop {
             if let Ok(request) = self.request_rx.recv() {
-                println!("{:?}", request);
+                log::info!("Received request: {request:?}");
                 match request {
                     Request::ExtractFrame { args, output } => {
-                        let ffmpeg_output = Command::new("ffmpeg")
-                            .args(args.split(' ').filter(|a| !a.is_empty()))
-                            .output()
-                            .unwrap();
-                        println!(
-                            "code: {}, \n{}\n{}",
-                            ffmpeg_output.status.code().unwrap(),
-                            String::from_utf8(ffmpeg_output.stdout).unwrap(),
-                            String::from_utf8(ffmpeg_output.stderr).unwrap(),
-                        );
-                        let img = ImageReader::open(output).unwrap().decode().unwrap();
-                        self.response_tx
-                            .send(Response::Image(img.into_rgba8()))
-                            .unwrap();
+                        match self.extract_frame(args, output) {
+                            Ok(response) => self.response_tx.send(response).unwrap(),
+                            Err(e) => self.response_tx.send(Response::Error(e)).unwrap(),
+                        }
                     }
                     Request::Play { args } => {
                         let ffmpeg_output = Command::new("ffplay")
                             .args(args.split(' ').filter(|a| !a.is_empty()))
                             .output()
                             .unwrap();
-                        println!(
-                            "code: {}, \n{}\n{}",
-                            ffmpeg_output.status.code().unwrap(),
-                            String::from_utf8(ffmpeg_output.stdout).unwrap(),
-                            String::from_utf8(ffmpeg_output.stderr).unwrap(),
-                        );
+                        if !ffmpeg_output.status.success() {
+                            log::error!(
+                                "ffmpeg output:\ncode: {}, \n{}\n{}",
+                                ffmpeg_output.status.code().unwrap(),
+                                String::from_utf8(ffmpeg_output.stdout).unwrap(),
+                                String::from_utf8(ffmpeg_output.stderr).unwrap(),
+                            );
+                        }
                     }
-                    Request::Convert { args } => todo!(),
                 }
             }
         }
+    }
+
+    fn extract_frame(&mut self, args: String, output: PathBuf) -> Result<Response, String> {
+        let ffmpeg_output = Command::new("ffmpeg")
+            .args(args.split(' ').filter(|a| !a.is_empty()))
+            .output()
+            .unwrap();
+        if !ffmpeg_output.status.success() {
+            log::error!(
+                "Could not extract frame:\ncode: {},\n{}\n{}",
+                ffmpeg_output.status.code().unwrap(),
+                String::from_utf8(ffmpeg_output.stdout).unwrap(),
+                String::from_utf8(ffmpeg_output.stderr).unwrap()
+            );
+            return Err("Could not extract frame!".to_string());
+        }
+        let img = ImageReader::open(output).unwrap().decode().unwrap();
+        Ok(Response::Image(img.into_rgba8()))
     }
 }

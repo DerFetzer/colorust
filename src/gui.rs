@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
+    fmt::{Display, Write},
     path::PathBuf,
     time::Duration,
 };
@@ -8,11 +8,11 @@ use std::{
 use eframe::App;
 use egui::{
     plot::{MarkerShape, Plot, PlotPoints, Points},
-    CollapsingHeader, Color32, ColorImage, ScrollArea, SidePanel, Slider, TextEdit, TextureHandle,
-    TopBottomPanel,
+    CollapsingHeader, Color32, ColorImage, ComboBox, RichText, ScrollArea, SidePanel, Slider,
+    TextEdit, TextureHandle, TopBottomPanel, Vec2,
 };
 use flume::{Receiver, Sender};
-use image::RgbaImage;
+use image::{Pixel, Rgba, RgbaImage};
 use temp_dir::TempDir;
 
 use crate::ffmpeg::{
@@ -29,6 +29,89 @@ pub(crate) struct ColorustApp {
     temp_dir: TempDir,
     waiting_for_image: bool,
     waveform: Option<Waveform>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Copy, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
+pub(crate) enum PreviewManipulationType {
+    Zebra,
+}
+
+impl Display for PreviewManipulationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Zebra => write!(f, "Zebra"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, serde::Deserialize, serde::Serialize)]
+pub(crate) struct PreviewManipulation {
+    is_active: bool,
+    manip_type: PreviewManipulationType,
+    zebra_value: u8,
+    zebra_range: u8,
+}
+
+impl PreviewManipulation {
+    pub fn apply(&self, img: &mut RgbaImage) {
+        if self.is_active {
+            log::info!("{:?}", self);
+            match self.manip_type {
+                PreviewManipulationType::Zebra => {
+                    Self::apply_zebra(img, self.zebra_value, self.zebra_range)
+                }
+            }
+        };
+    }
+
+    fn apply_zebra(img: &mut RgbaImage, value: u8, range: u8) {
+        // let pattern = RgbaImage::from_pixel(img.width(), img.height(), Rgba([255, 255, 255, 255]));
+        let pattern = RgbaImage::from_fn(img.width(), img.height(), |x, y| {
+            let is_white = (x + y) % 10 < 5;
+            if is_white {
+                Rgba([255, 255, 255, 255])
+            } else {
+                Rgba([0, 0, 0, 255])
+            }
+        });
+
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            let luma = pixel.to_luma()[0] as f64 * 100. / 255.;
+            if (value.saturating_sub(range) as f64..=value.saturating_add(range) as f64)
+                .contains(&luma)
+            {
+                *pixel = *pattern.get_pixel(x, y);
+            }
+        }
+    }
+
+    fn draw(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.checkbox(&mut self.is_active, "Active");
+        ComboBox::from_label("Type")
+            .selected_text(self.manip_type.to_string())
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut self.manip_type,
+                    PreviewManipulationType::Zebra,
+                    PreviewManipulationType::Zebra.to_string(),
+                );
+            });
+        match self.manip_type {
+            PreviewManipulationType::Zebra => {
+                ui.add(
+                    Slider::new(&mut self.zebra_value, 0..=255)
+                        .clamp_to_range(true)
+                        .text("Value"),
+                );
+                ui.add(
+                    Slider::new(&mut self.zebra_range, 1..=128)
+                        .clamp_to_range(true)
+                        .text("Range"),
+                );
+            }
+        };
+    }
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -48,6 +131,8 @@ pub(crate) struct ColorustState {
     waveform_multiplier: f64,
     conversion_commands: String,
     file_history: HashMap<PathBuf, String>,
+    conversion_template: String,
+    preview_manipulation: PreviewManipulation,
 }
 
 impl ColorustState {}
@@ -80,6 +165,14 @@ impl Default for ColorustState {
             waveform_multiplier: 25.,
             conversion_commands: Default::default(),
             file_history: Default::default(),
+            conversion_template: "ffmpeg ##input## ##cli## ##filter## ##encoder## ##output##"
+                .to_string(),
+            preview_manipulation: PreviewManipulation {
+                is_active: false,
+                manip_type: PreviewManipulationType::Zebra,
+                zebra_value: 52,
+                zebra_range: 2,
+            },
         }
     }
 }
@@ -103,6 +196,7 @@ impl ColorustApp {
             temp_dir: TempDir::new().unwrap(),
             waiting_for_image: false,
             waveform: None,
+            error: None,
         }
     }
 
@@ -133,6 +227,9 @@ impl ColorustApp {
                 self.state.active_file_state.filter_options.draw(ctx, ui);
             });
             ui.separator();
+            CollapsingHeader::new("Preview Manipulation").show(ui, |ui| {
+                self.state.preview_manipulation.draw(ctx, ui);
+            });
             ui.horizontal(|ui| {
                 if ui.button("Create preview").clicked() {
                     let preview_file = self.temp_dir.child("preview.bmp");
@@ -198,31 +295,50 @@ impl ColorustApp {
                     self.request_tx.send(Request::Play { args }).unwrap();
                 }
             });
+            ui.separator();
+            CollapsingHeader::new("Conversion template").show(ui, |ui| {
+                ui.text_edit_singleline(&mut self.state.conversion_template);
+            });
             if ui.button("Generate conversion command").clicked() {
-                writeln!(
-                    &mut self.state.conversion_commands,
-                    "ffmpeg {} {} {} {} {}",
-                    self.state.active_file_state.input_file.to_option_string(),
+                let mut template = self.state.conversion_template.clone();
+                template = template.replace(
+                    "##input##",
+                    &self.state.active_file_state.input_file.to_option_string(),
+                );
+                template = template.replace(
+                    "##cli##",
                     &self
                         .state
                         .active_file_state
                         .cli_options
                         .iter()
-                        .filter_map(|o| if o.is_active() {
-                            Some(o.to_option_string())
-                        } else {
-                            None
+                        .filter_map(|o| {
+                            if o.is_active() {
+                                Some(o.to_option_string())
+                            } else {
+                                None
+                            }
                         })
                         .collect::<Vec<_>>()
                         .join(" "),
-                    self.state
+                );
+                template = template.replace(
+                    "##filter##",
+                    &self
+                        .state
                         .active_file_state
                         .filter_options
                         .to_option_string(),
-                    self.state.active_file_state.encoder.to_option_string(),
-                    self.state.active_file_state.output_file.to_option_string(),
-                )
-                .unwrap();
+                );
+                template = template.replace(
+                    "##encoder##",
+                    &self.state.active_file_state.encoder.to_option_string(),
+                );
+                template = template.replace(
+                    "##output##",
+                    &self.state.active_file_state.output_file.to_option_string(),
+                );
+                writeln!(&mut self.state.conversion_commands, "{}", template).unwrap();
             }
             ui.separator();
             ui.horizontal(|ui| {
@@ -241,10 +357,10 @@ impl ColorustApp {
                         if let Ok(file_state) = serde_json::from_str(file_state_string) {
                             self.state.active_file_state = file_state;
                         } else {
-                            println!("Could not parse state from JSON!");
+                            log::error!("Could not parse state from JSON!");
                         }
                     } else {
-                        println!("No state available!");
+                        log::warn!("No state available!");
                     }
                 }
             });
@@ -252,14 +368,25 @@ impl ColorustApp {
     }
 
     fn draw_bottom_panel(&mut self, ctx: &egui::Context) {
-        TopBottomPanel::bottom("conversion_commands").show(ctx, |ui| {
-            ScrollArea::new([false, true]).show(ui, |ui| {
-                ui.add_sized(
-                    ui.available_size(),
-                    TextEdit::multiline(&mut self.state.conversion_commands),
-                );
+        TopBottomPanel::bottom("conversion_commands")
+            .resizable(true)
+            .max_height(500.)
+            .show(ctx, |ui| {
+                ScrollArea::new([false, true]).show(ui, |ui| {
+                    let available_size = ui.available_size();
+                    ui.add_sized(
+                        Vec2::new(available_size.x, available_size.y - 40.),
+                        TextEdit::multiline(&mut self.state.conversion_commands),
+                    );
+                    ui.separator();
+                    match &self.error {
+                        Some(error) => {
+                            ui.label(RichText::new(format!("Error: {}", error)).color(Color32::RED))
+                        }
+                        None => ui.label(RichText::new("OK").color(Color32::GREEN)),
+                    };
+                });
             });
-        });
     }
 
     fn draw_windows(&mut self, ctx: &egui::Context) {
@@ -337,9 +464,11 @@ impl ColorustApp {
     fn handle_events(&mut self, ctx: &egui::Context) {
         if let Ok(response) = self.response_rx.try_recv() {
             match response {
-                Response::Image(img) => {
+                Response::Image(mut img) => {
+                    self.error = None;
                     self.waveform = Some(Waveform::from_image(&img));
                     self.waiting_for_image = false;
+                    self.state.preview_manipulation.apply(&mut img);
                     let pixels = img.as_flat_samples();
                     let img = ColorImage::from_rgba_unmultiplied(
                         [img.width() as _, img.height() as _],
@@ -347,7 +476,7 @@ impl ColorustApp {
                     );
                     self.image_texture = Some(ctx.load_texture("img", img, Default::default()));
                 }
-                Response::Error(error) => println!("{error}"),
+                Response::Error(error) => self.error = Some(error),
             }
         }
     }

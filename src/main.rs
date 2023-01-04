@@ -1,10 +1,18 @@
 use eframe::NativeOptions;
 use gui::ColorustApp;
+use log::LevelFilter;
+use simple_logger::SimpleLogger;
 
 mod ffmpeg;
 mod gui;
 
 fn main() {
+    SimpleLogger::new()
+        .with_level(LevelFilter::Info)
+        .env()
+        .init()
+        .unwrap();
+
     let (request_tx, request_rx) = flume::unbounded();
     let (response_tx, response_rx) = flume::unbounded();
 
