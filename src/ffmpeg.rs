@@ -10,8 +10,8 @@ use crate::gui::GuiElement;
 
 #[derive(Debug)]
 pub(crate) enum Request {
-    ExtractFrame { args: String, output: PathBuf },
-    Play { args: String },
+    ExtractFrame { args: Vec<String>, output: PathBuf },
+    Play { args: Vec<String> },
 }
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub(crate) enum Response {
 
 #[typetag::serde(tag = "type")]
 pub(crate) trait CliOption: GuiElement {
-    fn to_option_string(&self) -> String;
+    fn to_option_args(&self) -> Vec<String>;
 }
 
 #[typetag::serde(tag = "type")]
@@ -37,11 +37,11 @@ pub(crate) struct FilterOption {
 
 #[typetag::serde]
 impl CliOption for FilterOption {
-    fn to_option_string(&self) -> String {
+    fn to_option_args(&self) -> Vec<String> {
         if self.filters.is_empty() || self.filters.iter().all(|f| !f.is_active()) {
-            return String::new();
+            return vec![];
         }
-        let s = "-vf ".to_string();
+        let s = "-vf".to_string();
         let filter_string = self
             .filters
             .iter()
@@ -55,7 +55,7 @@ impl CliOption for FilterOption {
             .collect::<Vec<_>>()
             .join(",");
 
-        s + &filter_string
+        vec![s, filter_string]
     }
 }
 
@@ -81,8 +81,8 @@ pub(crate) struct SkipOption {
 
 #[typetag::serde]
 impl CliOption for SkipOption {
-    fn to_option_string(&self) -> String {
-        format!("-ss {}", self.seconds)
+    fn to_option_args(&self) -> Vec<String> {
+        vec!["-ss".to_string(), self.seconds.to_string()]
     }
 }
 
@@ -104,8 +104,8 @@ pub(crate) struct NumberOfFramesOption {
 
 #[typetag::serde]
 impl CliOption for NumberOfFramesOption {
-    fn to_option_string(&self) -> String {
-        format!("-frames:v {}", self.frames)
+    fn to_option_args(&self) -> Vec<String> {
+        vec!["-frames:v".to_string(), self.frames.to_string()]
     }
 }
 
@@ -129,8 +129,8 @@ pub(crate) struct InputFile {
 
 #[typetag::serde]
 impl CliOption for InputFile {
-    fn to_option_string(&self) -> String {
-        format!("-i {}", self.path.to_string_lossy())
+    fn to_option_args(&self) -> Vec<String> {
+        vec!["-i".to_string(), self.path.to_string_lossy().to_string()]
     }
 }
 
@@ -173,8 +173,8 @@ pub(crate) struct OutputFile {
 
 #[typetag::serde]
 impl CliOption for OutputFile {
-    fn to_option_string(&self) -> String {
-        self.path.to_string_lossy().to_string()
+    fn to_option_args(&self) -> Vec<String> {
+        vec![self.path.to_string_lossy().to_string()]
     }
 }
 
@@ -221,11 +221,11 @@ pub(crate) struct Encoder {
 
 #[typetag::serde]
 impl CliOption for Encoder {
-    fn to_option_string(&self) -> String {
+    fn to_option_args(&self) -> Vec<String> {
         if self.expression.is_empty() {
-            String::new()
+            vec![]
         } else {
-            format!("-c:v {}", self.expression)
+            vec!["-c:v".to_string(), self.expression.clone()]
         }
     }
 }
@@ -634,10 +634,7 @@ impl Thread {
                         }
                     }
                     Request::Play { args } => {
-                        let ffmpeg_output = Command::new("ffplay")
-                            .args(args.split(' ').filter(|a| !a.is_empty()))
-                            .output()
-                            .unwrap();
+                        let ffmpeg_output = Command::new("ffplay").args(args).output().unwrap();
                         if !ffmpeg_output.status.success() {
                             log::error!(
                                 "ffmpeg output:\ncode: {}, \n{}\n{}",
@@ -652,11 +649,8 @@ impl Thread {
         }
     }
 
-    fn extract_frame(&mut self, args: String, output: PathBuf) -> Result<Response, String> {
-        let ffmpeg_output = Command::new("ffmpeg")
-            .args(args.split(' ').filter(|a| !a.is_empty()))
-            .output()
-            .unwrap();
+    fn extract_frame(&mut self, args: Vec<String>, output: PathBuf) -> Result<Response, String> {
+        let ffmpeg_output = Command::new("ffmpeg").args(args).output().unwrap();
         if !ffmpeg_output.status.success() {
             log::error!(
                 "Could not extract frame:\ncode: {},\n{}\n{}",

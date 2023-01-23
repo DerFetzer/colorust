@@ -1,10 +1,3 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::{Display, Write},
-    path::PathBuf,
-    time::Duration,
-};
-
 use eframe::App;
 use egui::{
     plot::{MarkerShape, Plot, PlotPoints, Points},
@@ -13,6 +6,12 @@ use egui::{
 };
 use flume::{Receiver, Sender};
 use image::{Pixel, Rgba, RgbaImage};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{Display, Write},
+    path::PathBuf,
+    time::Duration,
+};
 use temp_dir::TempDir;
 
 use crate::ffmpeg::{
@@ -233,32 +232,37 @@ impl ColorustApp {
             ui.horizontal(|ui| {
                 if ui.button("Create preview").clicked() {
                     let preview_file = self.temp_dir.child("preview.bmp");
-                    let args = format!(
-                        "-y -loglevel warning {} {} {} {} {} {}",
-                        self.state.active_file_state.skip_seconds.to_option_string(),
-                        self.state.active_file_state.input_file.to_option_string(),
-                        NumberOfFramesOption { frames: 1 }.to_option_string(),
-                        &self
+                    let mut args = vec![
+                        "-y".to_string(),
+                        "-loglevel".to_string(),
+                        "warning".to_string(),
+                    ];
+                    args.append(&mut self.state.active_file_state.skip_seconds.to_option_args());
+                    args.append(&mut self.state.active_file_state.input_file.to_option_args());
+                    args.append(&mut NumberOfFramesOption { frames: 1 }.to_option_args());
+                    args.append(
+                        &mut self
                             .state
                             .active_file_state
                             .cli_options
                             .iter()
-                            .filter_map(|o| if o.is_active() {
-                                Some(o.to_option_string())
-                            } else {
-                                None
+                            .filter_map(|o| {
+                                if o.is_active() {
+                                    Some(o.to_option_args())
+                                } else {
+                                    None
+                                }
                             })
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                        self.state
-                            .active_file_state
-                            .filter_options
-                            .to_option_string(),
-                        OutputFile {
+                            .flatten()
+                            .collect(),
+                    );
+                    args.append(&mut self.state.active_file_state.filter_options.to_option_args());
+                    args.append(
+                        &mut OutputFile {
                             path: preview_file.clone(),
-                            dialog: None
+                            dialog: None,
                         }
-                        .to_option_string(),
+                        .to_option_args(),
                     );
 
                     self.request_tx
@@ -270,27 +274,26 @@ impl ColorustApp {
                     self.waiting_for_image = true;
                 }
                 if ui.button("Play preview").clicked() {
-                    let args = format!(
-                        "{} {} {} {}",
-                        self.state.active_file_state.skip_seconds.to_option_string(),
-                        self.state.active_file_state.input_file.to_option_string(),
-                        &self
+                    let mut args = vec![];
+                    args.append(&mut self.state.active_file_state.skip_seconds.to_option_args());
+                    args.append(&mut self.state.active_file_state.input_file.to_option_args());
+                    args.append(
+                        &mut self
                             .state
                             .active_file_state
                             .cli_options
                             .iter()
-                            .filter_map(|o| if o.is_active() {
-                                Some(o.to_option_string())
-                            } else {
-                                None
+                            .filter_map(|o| {
+                                if o.is_active() {
+                                    Some(o.to_option_args())
+                                } else {
+                                    None
+                                }
                             })
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                        self.state
-                            .active_file_state
-                            .filter_options
-                            .to_option_string(),
+                            .flatten()
+                            .collect(),
                     );
+                    args.append(&mut self.state.active_file_state.filter_options.to_option_args());
 
                     self.request_tx.send(Request::Play { args }).unwrap();
                 }
@@ -303,7 +306,12 @@ impl ColorustApp {
                 let mut template = self.state.conversion_template.clone();
                 template = template.replace(
                     "##input##",
-                    &self.state.active_file_state.input_file.to_option_string(),
+                    &self
+                        .state
+                        .active_file_state
+                        .input_file
+                        .to_option_args()
+                        .join(" "),
                 );
                 template = template.replace(
                     "##cli##",
@@ -314,11 +322,12 @@ impl ColorustApp {
                         .iter()
                         .filter_map(|o| {
                             if o.is_active() {
-                                Some(o.to_option_string())
+                                Some(o.to_option_args())
                             } else {
                                 None
                             }
                         })
+                        .flatten()
                         .collect::<Vec<_>>()
                         .join(" "),
                 );
@@ -328,15 +337,26 @@ impl ColorustApp {
                         .state
                         .active_file_state
                         .filter_options
-                        .to_option_string(),
+                        .to_option_args()
+                        .join(" "),
                 );
                 template = template.replace(
                     "##encoder##",
-                    &self.state.active_file_state.encoder.to_option_string(),
+                    &self
+                        .state
+                        .active_file_state
+                        .encoder
+                        .to_option_args()
+                        .join(" "),
                 );
                 template = template.replace(
                     "##output##",
-                    &self.state.active_file_state.output_file.to_option_string(),
+                    &self
+                        .state
+                        .active_file_state
+                        .output_file
+                        .to_option_args()
+                        .join(" "),
                 );
                 writeln!(&mut self.state.conversion_commands, "{}", template).unwrap();
             }
