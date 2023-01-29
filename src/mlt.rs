@@ -1,5 +1,6 @@
 use std::{collections::HashMap, str::FromStr};
 
+use regex::Regex;
 use roxmltree::Node;
 
 use crate::ffmpeg::{Filter, FilterColortemp, FilterEq, FilterExposure, FilterLut};
@@ -63,18 +64,23 @@ pub fn get_filter_strings(root: &Node) -> HashMap<String, String> {
 }
 
 fn get_url_from_producer(root: &Node, producer: &str) -> Option<String> {
-    Some(
-        root.first_child()?
-            .children()
-            .find(|n| n.has_tag_name("producer") && n.attribute("id").unwrap() == producer)?
-            .children()
-            .find(|n| {
-                n.has_tag_name("property") && n.attribute("name") == Some("kdenlive:originalurl")
-            })?
-            .text()
-            .unwrap()
-            .to_string(),
-    )
+    let producer_properties: Vec<_> = root
+        .first_child()?
+        .children()
+        .find(|n| n.has_tag_name("producer") && n.attribute("id").unwrap() == producer)?
+        .children()
+        .filter(|n| n.has_tag_name("property"))
+        .collect();
+
+    producer_properties
+        .iter()
+        .find(|n| n.attribute("name") == Some("kdenlive:originalurl"))
+        .or_else(|| {
+            producer_properties
+                .iter()
+                .find(|n| n.attribute("name") == Some("resource"))
+        })
+        .and_then(|n| Some(n.text()?.to_string()))
 }
 
 pub fn add_filtergraph_to_producers(
@@ -82,22 +88,23 @@ pub fn add_filtergraph_to_producers(
     filter_strings: &HashMap<String, String>,
     delete_existing: bool,
 ) -> String {
+    let re_property = Regex::new(r#"<property name=".*">(?P<value>.*)</property>"#).unwrap();
+
     let mut output = Vec::new();
     for line in xml.lines() {
         if delete_existing && line.contains("name=\"filtergraph\"") {
             continue;
         }
-        if line.contains(r#"<property name="kdenlive:originalurl"#) {
-            let url = line
-                .trim()
-                .strip_prefix(r#"<property name="kdenlive:originalurl">"#)
-                .unwrap()
-                .strip_suffix(r#"</property>"#)
-                .unwrap();
-            if let Some(filter_string) = filter_strings.get(&url.to_string()) {
-                output.push(format!(
-                    "  <property name=\"filtergraph\">{filter_string}</property>",
-                ));
+        if line.contains(r#"<property name="kdenlive:originalurl"#)
+            || line.contains(r#"<property name="resource"#)
+        {
+            let url = || Some(re_property.captures(line)?.name("value")?.as_str());
+            if let Some(url) = url() {
+                if let Some(filter_string) = filter_strings.get(&url.to_string()) {
+                    output.push(format!(
+                        "  <property name=\"filtergraph\">{filter_string}</property>",
+                    ));
+                }
             }
         }
         output.push(line.to_string());

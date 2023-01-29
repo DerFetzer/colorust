@@ -20,6 +20,7 @@ temp-dir = "0.1.11"
 typetag = "0.2.5"
 roxmltree = "0.17.0"
 clap = { version = "4.1.4", features = ["derive"] }
+regex = "1"
 
 [profile.release]
 lto = "thin"

@@ -7,7 +7,7 @@ use log::debug;
 use roxmltree::Document;
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version)]
 struct Cli {
     /// Kdenlive input file
     input: PathBuf,

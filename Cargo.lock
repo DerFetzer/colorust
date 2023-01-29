@@ -550,6 +550,7 @@ dependencies = [
  "flume",
  "image",
  "log",
+ "regex",
  "roxmltree",
  "serde",
  "serde_json",
