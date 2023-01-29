@@ -20,7 +20,7 @@ use crate::ffmpeg::{
     OutputFile, Request, Response, SkipOption,
 };
 
-pub(crate) struct ColorustApp {
+pub struct ColorustApp {
     state: ColorustState,
     image_texture: Option<TextureHandle>,
     request_tx: Sender<Request>,
@@ -32,7 +32,7 @@ pub(crate) struct ColorustApp {
 }
 
 #[derive(Debug, Copy, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
-pub(crate) enum PreviewManipulationType {
+pub enum PreviewManipulationType {
     Zebra,
 }
 
@@ -45,7 +45,7 @@ impl Display for PreviewManipulationType {
 }
 
 #[derive(Debug, Copy, Clone, serde::Deserialize, serde::Serialize)]
-pub(crate) struct PreviewManipulation {
+pub struct PreviewManipulation {
     is_active: bool,
     manip_type: PreviewManipulationType,
     zebra_value: u8,
@@ -114,7 +114,7 @@ impl PreviewManipulation {
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
-pub(crate) struct FileState {
+pub struct FileState {
     input_file: InputFile,
     output_file: OutputFile,
     encoder: Encoder,
@@ -125,7 +125,7 @@ pub(crate) struct FileState {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
-pub(crate) struct ColorustState {
+pub struct ColorustState {
     active_file_state: FileState,
     waveform_multiplier: f64,
     conversion_commands: String,
@@ -358,7 +358,7 @@ impl ColorustApp {
                         .to_option_args()
                         .join(" "),
                 );
-                writeln!(&mut self.state.conversion_commands, "{}", template).unwrap();
+                writeln!(&mut self.state.conversion_commands, "{template}").unwrap();
             }
             ui.separator();
             ui.horizontal(|ui| {
@@ -401,7 +401,7 @@ impl ColorustApp {
                     ui.separator();
                     match &self.error {
                         Some(error) => {
-                            ui.label(RichText::new(format!("Error: {}", error)).color(Color32::RED))
+                            ui.label(RichText::new(format!("Error: {error}")).color(Color32::RED))
                         }
                         None => ui.label(RichText::new("OK").color(Color32::GREEN)),
                     };
@@ -522,7 +522,7 @@ impl App for ColorustApp {
 }
 
 #[typetag::serde(tag = "type")]
-pub(crate) trait GuiElement {
+pub trait GuiElement {
     fn draw(&mut self, ctx: &egui::Context, ui: &mut egui::Ui);
     fn name(&self) -> &'static str;
     fn is_active(&self) -> bool {

@@ -3,35 +3,36 @@ use egui_file::FileDialog;
 use flume::{Receiver, Sender};
 use image::io::Reader as ImageReader;
 use image::RgbaImage;
+use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, process::Command};
 
-use crate::gui::GuiElement;
+use crate::{gui::GuiElement, mlt::get_property_value};
 
 #[derive(Debug)]
-pub(crate) enum Request {
+pub enum Request {
     ExtractFrame { args: Vec<String>, output: PathBuf },
     Play { args: Vec<String> },
 }
 
 #[derive(Debug)]
-pub(crate) enum Response {
+pub enum Response {
     Image(RgbaImage),
     Error(String),
 }
 
 #[typetag::serde(tag = "type")]
-pub(crate) trait CliOption: GuiElement {
+pub trait CliOption: GuiElement {
     fn to_option_args(&self) -> Vec<String>;
 }
 
 #[typetag::serde(tag = "type")]
-pub(crate) trait Filter: GuiElement {
+pub trait Filter: GuiElement {
     fn to_filter_string(&self) -> String;
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct FilterOption {
+pub struct FilterOption {
     pub filters: Vec<Box<dyn Filter>>,
 }
 
@@ -75,7 +76,7 @@ impl GuiElement for FilterOption {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct SkipOption {
+pub struct SkipOption {
     pub seconds: u64,
 }
 
@@ -98,7 +99,7 @@ impl GuiElement for SkipOption {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct NumberOfFramesOption {
+pub struct NumberOfFramesOption {
     pub frames: u64,
 }
 
@@ -121,7 +122,7 @@ impl GuiElement for NumberOfFramesOption {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct InputFile {
+pub struct InputFile {
     pub path: PathBuf,
     #[serde(skip)]
     pub dialog: Option<FileDialog>,
@@ -165,7 +166,7 @@ impl GuiElement for InputFile {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct OutputFile {
+pub struct OutputFile {
     pub path: PathBuf,
     #[serde(skip)]
     pub dialog: Option<FileDialog>,
@@ -215,7 +216,7 @@ impl GuiElement for OutputFile {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct Encoder {
+pub struct Encoder {
     pub expression: String,
 }
 
@@ -241,8 +242,8 @@ impl GuiElement for Encoder {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
-pub(crate) struct FilterExposure {
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct FilterExposure {
     pub is_active: bool,
     pub exposure: f32,
     pub black: f32,
@@ -280,8 +281,27 @@ impl GuiElement for FilterExposure {
     }
 }
 
+impl TryFrom<&Node<'_, '_>> for FilterExposure {
+    type Error = ();
+
+    fn try_from(value: &Node) -> Result<Self, Self::Error> {
+        if get_property_value(value, "mlt_service") != Some("avfilter.exposure".to_string()) {
+            return Err(());
+        }
+        let exposure = get_property_value(value, "av.exposure").ok_or(())?;
+        let black = get_property_value(value, "av.black").ok_or(())?;
+        let disabled = get_property_value(value, "disable").unwrap_or(0) == 1;
+
+        Ok(Self {
+            is_active: !disabled,
+            exposure,
+            black,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
-pub(crate) struct FilterLut {
+pub struct FilterLut {
     pub is_active: bool,
     pub file: String,
     pub interpolation: String,
@@ -301,6 +321,25 @@ impl Default for FilterLut {
 impl Filter for FilterLut {
     fn to_filter_string(&self) -> String {
         format!("lut3d=file={}:interp={}", self.file, self.interpolation)
+    }
+}
+
+impl TryFrom<&Node<'_, '_>> for FilterLut {
+    type Error = ();
+
+    fn try_from(value: &Node) -> Result<Self, Self::Error> {
+        if get_property_value(value, "mlt_service") != Some("avfilter.lut3d".to_string()) {
+            return Err(());
+        }
+        let file = get_property_value(value, "av.file").ok_or(())?;
+        let interpolation = get_property_value(value, "av.interp").ok_or(())?;
+        let disabled = get_property_value(value, "disable").unwrap_or(0) == 1;
+
+        Ok(Self {
+            is_active: !disabled,
+            file,
+            interpolation,
+        })
     }
 }
 
@@ -336,7 +375,7 @@ impl GuiElement for FilterLut {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct FilterScale {
+pub struct FilterScale {
     pub is_active: bool,
     pub width: u64,
     pub height: u64,
@@ -373,12 +412,15 @@ impl GuiElement for FilterScale {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct FilterEq {
+pub struct FilterEq {
     pub is_active: bool,
     pub contrast: f32,
     pub brightness: f32,
     pub saturation: f32,
     pub gamma: f32,
+    pub gamma_r: f32,
+    pub gamma_g: f32,
+    pub gamma_b: f32,
 }
 
 impl Default for FilterEq {
@@ -389,6 +431,9 @@ impl Default for FilterEq {
             brightness: 0.,
             saturation: 1.,
             gamma: 1.,
+            gamma_r: 1.,
+            gamma_g: 1.,
+            gamma_b: 1.,
         }
     }
 }
@@ -397,8 +442,14 @@ impl Default for FilterEq {
 impl Filter for FilterEq {
     fn to_filter_string(&self) -> String {
         format!(
-            "eq=contrast={}:brightness={}:saturation={}:gamma={}",
-            self.contrast, self.brightness, self.saturation, self.gamma
+            "eq=contrast={}:brightness={}:saturation={}:gamma={}:gamma_r={}:gamma_g={}:gamma_b={}",
+            self.contrast,
+            self.brightness,
+            self.saturation,
+            self.gamma,
+            self.gamma_r,
+            self.gamma_g,
+            self.gamma_b
         )
     }
 }
@@ -430,6 +481,24 @@ impl GuiElement for FilterEq {
                 .logarithmic(true)
                 .text("Gamma"),
         );
+        ui.add(
+            Slider::new(&mut self.gamma_r, 0.1..=10.0)
+                .clamp_to_range(true)
+                .logarithmic(true)
+                .text("Gamma R"),
+        );
+        ui.add(
+            Slider::new(&mut self.gamma_g, 0.1..=10.0)
+                .clamp_to_range(true)
+                .logarithmic(true)
+                .text("Gamma G"),
+        );
+        ui.add(
+            Slider::new(&mut self.gamma_b, 0.1..=10.0)
+                .clamp_to_range(true)
+                .logarithmic(true)
+                .text("Gamma B"),
+        );
     }
 
     fn name(&self) -> &'static str {
@@ -441,8 +510,37 @@ impl GuiElement for FilterEq {
     }
 }
 
+impl TryFrom<&Node<'_, '_>> for FilterEq {
+    type Error = ();
+
+    fn try_from(value: &Node) -> Result<Self, Self::Error> {
+        if get_property_value(value, "mlt_service") != Some("avfilter.eq".to_string()) {
+            return Err(());
+        }
+        let contrast = get_property_value(value, "av.contrast").ok_or(())?;
+        let brightness = get_property_value(value, "av.brightness").ok_or(())?;
+        let saturation = get_property_value(value, "av.saturation").ok_or(())?;
+        let gamma = get_property_value(value, "av.gamma").ok_or(())?;
+        let gamma_r = get_property_value(value, "av.gamma_r").ok_or(())?;
+        let gamma_g = get_property_value(value, "av.gamma_g").ok_or(())?;
+        let gamma_b = get_property_value(value, "av.gamma_b").ok_or(())?;
+        let disabled = get_property_value(value, "disable").unwrap_or(0) == 1;
+
+        Ok(Self {
+            is_active: !disabled,
+            contrast,
+            brightness,
+            saturation,
+            gamma,
+            gamma_r,
+            gamma_g,
+            gamma_b,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
-pub(crate) struct FilterColortemp {
+pub struct FilterColortemp {
     pub is_active: bool,
     pub temperature: u32,
 }
@@ -484,8 +582,26 @@ impl GuiElement for FilterColortemp {
     }
 }
 
+impl TryFrom<&Node<'_, '_>> for FilterColortemp {
+    type Error = ();
+
+    fn try_from(value: &Node) -> Result<Self, Self::Error> {
+        if get_property_value(value, "mlt_service") != Some("avfilter.colortemperature".to_string())
+        {
+            return Err(());
+        }
+        let temperature = get_property_value(value, "av.temperature").ok_or(())?;
+        let disabled = get_property_value(value, "disable").unwrap_or(0) == 1;
+
+        Ok(Self {
+            is_active: !disabled,
+            temperature,
+        })
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct FilterColorBalance {
+pub struct FilterColorBalance {
     pub is_active: bool,
     pub shadows_red: f32,
     pub shadows_green: f32,
@@ -581,7 +697,7 @@ impl GuiElement for FilterColorBalance {
 }
 
 #[derive(Default, Serialize, Deserialize)]
-pub(crate) struct FilterCustom {
+pub struct FilterCustom {
     pub is_active: bool,
     pub expression: String,
 }
@@ -609,7 +725,7 @@ impl GuiElement for FilterCustom {
     }
 }
 
-pub(crate) struct Thread {
+pub struct Thread {
     pub request_rx: Receiver<Request>,
     pub response_tx: Sender<Response>,
 }
@@ -662,5 +778,38 @@ impl Thread {
         }
         let img = ImageReader::open(output).unwrap().decode().unwrap();
         Ok(Response::Image(img.into_rgba8()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use roxmltree::Document;
+
+    use super::*;
+
+    #[test]
+    fn exposure_from_xml() {
+        let xml = r#"
+               <filter id="filter6">
+                <property name="mlt_service">avfilter.exposure</property>
+                <property name="kdenlive_id">avfilter.exposure</property>
+                <property name="av.exposure">00:00:00.000=0</property>
+                <property name="av.black">00:00:00.000=0</property>
+                <property name="kdenlive:collapsed">1</property>
+                <property name="disable">1</property>
+               </filter>
+            "#;
+        let doc = Document::parse(xml).unwrap();
+        let root = &doc.root();
+
+        let filter = root.try_into();
+        assert_eq!(
+            filter,
+            Ok(FilterExposure {
+                is_active: false,
+                exposure: 0.0,
+                black: 0.0
+            })
+        );
     }
 }

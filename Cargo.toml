@@ -8,15 +8,21 @@ edition = "2021"
 [dependencies]
 log = "^0.4"
 simple_logger = "4.0.0"
+color-eyre = { version = "0.6.2", default-features=false }
 egui = "0.20.1"
 eframe = { version = "0.20.1", features = ["dark-light", "persistence"] }
-egui_file = "0.5.1"
+egui_file = "0.5.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.91"
 image = "0.24.5"
 flume = "0.10"
 temp-dir = "0.1.11"
-typetag = "0.2.4"
+typetag = "0.2.5"
+roxmltree = "0.17.0"
+clap = { version = "4.1.4", features = ["derive"] }
 
 [profile.release]
 lto = "thin"
+
+[profile.dev.package.backtrace]
+opt-level = 3
