@@ -67,7 +67,10 @@ fn get_url_from_producer(root: &Node, producer: &str) -> Option<String> {
     let producer_properties: Vec<_> = root
         .first_child()?
         .children()
-        .find(|n| n.has_tag_name("producer") && n.attribute("id").unwrap() == producer)?
+        .find(|n| {
+            (n.has_tag_name("producer") || n.has_tag_name("chain"))
+                && n.attribute("id").unwrap() == producer
+        })?
         .children()
         .filter(|n| n.has_tag_name("property"))
         .collect();
