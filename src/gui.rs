@@ -1,9 +1,9 @@
 use eframe::App;
 use egui::{
-    plot::{MarkerShape, Plot, PlotPoints, Points},
     CollapsingHeader, Color32, ColorImage, ComboBox, RichText, ScrollArea, SidePanel, Slider,
     TextEdit, TextureHandle, TopBottomPanel, Vec2,
 };
+use egui_plot::{MarkerShape, Plot, PlotPoints, Points};
 use flume::{Receiver, Sender};
 use image::{Pixel, Rgba, RgbaImage};
 use std::{
@@ -476,7 +476,7 @@ impl ColorustApp {
     fn draw_central_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(img) = self.image_texture.as_ref() {
-                ui.image(img, img.size_vec2());
+                ui.image(img);
             }
         });
     }

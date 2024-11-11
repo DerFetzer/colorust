@@ -15,7 +15,8 @@ fn main() -> Result<()> {
         "Colorust",
         native_options,
         Box::new(|cc| Box::new(ColorustApp::new(cc, request_tx, response_rx))),
-    );
+    )
+    .unwrap();
 
     Ok(())
 }

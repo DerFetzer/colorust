@@ -3,6 +3,7 @@ use egui_file::FileDialog;
 use flume::{Receiver, Sender};
 use image::io::Reader as ImageReader;
 use image::RgbaImage;
+use log::{debug, info};
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, process::Command};
@@ -158,7 +159,7 @@ impl GuiElement for InputFile {
         if let Some(dialog) = &mut self.dialog {
             if dialog.show(ctx).selected() {
                 if let Some(path) = dialog.path() {
-                    self.path = path;
+                    self.path = path.to_path_buf();
                 }
             }
         }
@@ -208,7 +209,7 @@ impl GuiElement for OutputFile {
         if let Some(dialog) = &mut self.dialog {
             if dialog.show(ctx).selected() {
                 if let Some(path) = dialog.path() {
-                    self.path = path;
+                    self.path = path.to_path_buf();
                 }
             }
         }
@@ -767,6 +768,7 @@ impl Thread {
 
     fn extract_frame(&mut self, args: Vec<String>, output: PathBuf) -> Result<Response, String> {
         let ffmpeg_output = Command::new("ffmpeg").args(args).output().unwrap();
+        info!("Command: {:?}", ffmpeg_output);
         if !ffmpeg_output.status.success() {
             log::error!(
                 "Could not extract frame:\ncode: {},\n{}\n{}",
@@ -776,6 +778,7 @@ impl Thread {
             );
             return Err("Could not extract frame!".to_string());
         }
+        info!("Output: {:?}", output);
         let img = ImageReader::open(output).unwrap().decode().unwrap();
         Ok(Response::Image(img.into_rgba8()))
     }
