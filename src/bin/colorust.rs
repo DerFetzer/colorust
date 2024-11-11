@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         "Colorust",
         native_options,
-        Box::new(|cc| Box::new(ColorustApp::new(cc, request_tx, response_rx))),
+        Box::new(|cc| Ok(Box::new(ColorustApp::new(cc, request_tx, response_rx)))),
     )
     .unwrap();
 

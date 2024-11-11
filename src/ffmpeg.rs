@@ -1,9 +1,8 @@
-use egui::{CollapsingHeader, ComboBox, DragValue, Slider};
+use egui::{CollapsingHeader, ComboBox, DragValue, Slider, SliderClamping};
 use egui_file::FileDialog;
 use flume::{Receiver, Sender};
-use image::io::Reader as ImageReader;
-use image::RgbaImage;
-use log::{debug, info};
+use image::{ImageReader, RgbaImage};
+use log::info;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, process::Command};
@@ -263,12 +262,12 @@ impl GuiElement for FilterExposure {
         ui.checkbox(&mut self.is_active, "Active");
         ui.add(
             Slider::new(&mut self.exposure, -3.0..=3.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Exposure"),
         );
         ui.add(
             Slider::new(&mut self.black, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Black level"),
         );
     }
@@ -461,42 +460,42 @@ impl GuiElement for FilterEq {
         ui.checkbox(&mut self.is_active, "Active");
         ui.add(
             Slider::new(&mut self.contrast, 0.0..=3.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Contrast"),
         );
         ui.add(
             Slider::new(&mut self.brightness, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Brightness"),
         );
         ui.add(
             Slider::new(&mut self.saturation, 0.0..=3.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Saturation"),
         );
         ui.add(
             Slider::new(&mut self.gamma, 0.1..=10.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Gamma"),
         );
         ui.add(
             Slider::new(&mut self.gamma_r, 0.1..=10.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Gamma R"),
         );
         ui.add(
             Slider::new(&mut self.gamma_g, 0.1..=10.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Gamma G"),
         );
         ui.add(
             Slider::new(&mut self.gamma_b, 0.1..=10.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Gamma B"),
         );
@@ -568,7 +567,7 @@ impl GuiElement for FilterColortemp {
         ui.checkbox(&mut self.is_active, "Active");
         ui.add(
             Slider::new(&mut self.temperature, 1000..=40000)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Temperature"),
         );
@@ -641,49 +640,49 @@ impl GuiElement for FilterColorBalance {
         ui.label("Shadows");
         ui.add(
             Slider::new(&mut self.shadows_red, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Red"),
         );
         ui.add(
             Slider::new(&mut self.shadows_green, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Green"),
         );
         ui.add(
             Slider::new(&mut self.shadows_blue, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Blue"),
         );
         ui.label("Midtones");
         ui.add(
             Slider::new(&mut self.midtones_red, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Red"),
         );
         ui.add(
             Slider::new(&mut self.midtones_green, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Green"),
         );
         ui.add(
             Slider::new(&mut self.midtones_blue, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Blue"),
         );
         ui.label("Highlights");
         ui.add(
             Slider::new(&mut self.highlights_red, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Red"),
         );
         ui.add(
             Slider::new(&mut self.highlights_green, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Green"),
         );
         ui.add(
             Slider::new(&mut self.highlights_blue, -1.0..=1.0)
-                .clamp_to_range(true)
+                .clamping(SliderClamping::Always)
                 .text("Blue"),
         );
     }

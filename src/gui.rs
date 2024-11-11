@@ -1,7 +1,7 @@
 use eframe::App;
 use egui::{
     CollapsingHeader, Color32, ColorImage, ComboBox, RichText, ScrollArea, SidePanel, Slider,
-    TextEdit, TextureHandle, TopBottomPanel, Vec2,
+    SliderClamping, TextEdit, TextureHandle, TopBottomPanel, Vec2,
 };
 use egui_plot::{MarkerShape, Plot, PlotPoints, Points};
 use flume::{Receiver, Sender};
@@ -100,12 +100,12 @@ impl PreviewManipulation {
             PreviewManipulationType::Zebra => {
                 ui.add(
                     Slider::new(&mut self.zebra_value, 0..=255)
-                        .clamp_to_range(true)
+                        .clamping(SliderClamping::Always)
                         .text("Value"),
                 );
                 ui.add(
                     Slider::new(&mut self.zebra_range, 1..=128)
-                        .clamp_to_range(true)
+                        .clamping(SliderClamping::Always)
                         .text("Range"),
                 );
             }
