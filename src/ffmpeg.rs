@@ -411,7 +411,7 @@ impl GuiElement for FilterScale {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct FilterEq {
     pub is_active: bool,
     pub contrast: f32,
@@ -465,7 +465,7 @@ impl GuiElement for FilterEq {
                 .text("Contrast"),
         );
         ui.add(
-            Slider::new(&mut self.brightness, -1.0..=1.0)
+            Slider::new(&mut self.brightness, -1.0..=1.1)
                 .clamping(SliderClamping::Always)
                 .logarithmic(true)
                 .text("Brightness"),
@@ -639,49 +639,49 @@ impl GuiElement for FilterColorBalance {
         ui.checkbox(&mut self.is_active, "Active");
         ui.label("Shadows");
         ui.add(
-            Slider::new(&mut self.shadows_red, -1.0..=1.0)
+            Slider::new(&mut self.shadows_red, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Red"),
         );
         ui.add(
-            Slider::new(&mut self.shadows_green, -1.0..=1.0)
+            Slider::new(&mut self.shadows_green, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Green"),
         );
         ui.add(
-            Slider::new(&mut self.shadows_blue, -1.0..=1.0)
+            Slider::new(&mut self.shadows_blue, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Blue"),
         );
         ui.label("Midtones");
         ui.add(
-            Slider::new(&mut self.midtones_red, -1.0..=1.0)
+            Slider::new(&mut self.midtones_red, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Red"),
         );
         ui.add(
-            Slider::new(&mut self.midtones_green, -1.0..=1.0)
+            Slider::new(&mut self.midtones_green, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Green"),
         );
         ui.add(
-            Slider::new(&mut self.midtones_blue, -1.0..=1.0)
+            Slider::new(&mut self.midtones_blue, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Blue"),
         );
         ui.label("Highlights");
         ui.add(
-            Slider::new(&mut self.highlights_red, -1.0..=1.0)
+            Slider::new(&mut self.highlights_red, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Red"),
         );
         ui.add(
-            Slider::new(&mut self.highlights_green, -1.0..=1.0)
+            Slider::new(&mut self.highlights_green, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Green"),
         );
         ui.add(
-            Slider::new(&mut self.highlights_blue, -1.0..=1.0)
+            Slider::new(&mut self.highlights_blue, -1.0..=1.01)
                 .clamping(SliderClamping::Always)
                 .text("Blue"),
         );

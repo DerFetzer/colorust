@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{borrow::Cow, collections::HashMap, str::FromStr};
 
 use regex::Regex;
 use roxmltree::Node;
@@ -90,6 +90,7 @@ pub fn add_filtergraph_to_producers(
     xml: String,
     filter_strings: &HashMap<String, String>,
     delete_existing: bool,
+    append_filter: Option<String>,
 ) -> String {
     let re_property = Regex::new(r#"<property name=".*">(?P<value>.*)</property>"#).unwrap();
 
@@ -103,7 +104,13 @@ pub fn add_filtergraph_to_producers(
         {
             let url = || Some(re_property.captures(line)?.name("value")?.as_str());
             if let Some(url) = url() {
-                if let Some(filter_string) = filter_strings.get(&url.to_string()) {
+                if let Some(mut filter_string) = filter_strings.get(&url.to_string()).map(Cow::from)
+                {
+                    if let Some(append_filter) = &append_filter {
+                        filter_string
+                            .to_mut()
+                            .push_str(&format!(",{append_filter}"));
+                    }
                     output.push(format!(
                         "  <property name=\"filtergraph\">{filter_string}</property>",
                     ));

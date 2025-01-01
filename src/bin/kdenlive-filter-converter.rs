@@ -24,6 +24,10 @@ struct Cli {
     /// Delete existing filtergraph properties from all producers
     #[arg(short, long)]
     delete_existing_filtergraph: bool,
+
+    /// Optionally extend the generated filter with this parameter
+    #[arg(short, long)]
+    append_filter: Option<String>,
 }
 
 fn main() -> Result<()> {
@@ -51,6 +55,7 @@ fn main() -> Result<()> {
         insert_into,
         &filter_strings,
         cli.delete_existing_filtergraph,
+        cli.append_filter,
     );
     std::fs::write(cli.output, mlt_out).wrap_err("Could not write output file")?;
 
